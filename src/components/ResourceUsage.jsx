@@ -1,10 +1,7 @@
-import React from "react";
-
-function ResourceUsage({ cpuUsage, ramUsage }) {
+function ResourceUsage() {
   return (
-    <div className="text-black font-bold">
-      <p>CPU Usage: {cpuUsage.toFixed(2)}%</p>
-      <p>RAM Usage: {ramUsage.toFixed(2)} MB</p>
+    <div className="resource-note" role="note">
+      Server CPU and memory metrics are not exposed by this runner.
     </div>
   );
 }

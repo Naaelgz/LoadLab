@@ -1,10 +1,16 @@
-import React from "react";
+import { Trash2 } from "lucide-react";
 
-function ClearResults({ clearResults }) {
+function ClearResults({ clearResults, disabled }) {
   return (
     <button
-      className="bg-red-500 text-white rounded-md p-2 mt-4"
-      onClick={clearResults}>Clear Results</button>
+      className="clear-button"
+      type="button"
+      onClick={clearResults}
+      disabled={disabled}
+    >
+      <Trash2 size={15} />
+      Clear results
+    </button>
   );
 }
 

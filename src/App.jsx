@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import { useState } from "react";
+import { Activity, CircleAlert } from "lucide-react";
 
 import LoadTestForm from "./components/LoadTestForm";
 import ResultsList from "./components/ResultsList";
@@ -8,12 +9,15 @@ import Help from "./Footer/Help";
 import Info from "./Footer/info";
 
 function App() {
+  const maxRequests = 1000;
+  const maxConcurrency = 50;
   const [url, setUrl] = useState("");
   const [numberOfRequests, setNumberOfRequests] = useState(1);
+  const [concurrency, setConcurrency] = useState(5);
   const [timeout, setTimeoutValue] = useState(10);
   const [results, setResults] = useState([]);
-  const [cpuUsage, setCpuUsage] = useState(0);
-  const [ramUsage, setRamUsage] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [statistics, setStatistics] = useState({
     totalRequests: 0,
     successfulRequests: 0,
@@ -22,90 +26,61 @@ function App() {
     averageResponseTime: 0,
   });
 
-  // Fungsi untuk memulai load test
   const handleStartTest = async () => {
-    // Validasi input: URL harus diisi, jumlah request dan timeout harus > 0
-    if (!url || numberOfRequests <= 0 || timeout <= 0) {
-      alert("Please provide valid input values.");
+    setErrorMessage("");
+    if (
+      !url ||
+      !Number.isInteger(numberOfRequests) ||
+      numberOfRequests < 1 ||
+      numberOfRequests > maxRequests ||
+      !Number.isInteger(concurrency) ||
+      concurrency < 1 ||
+      concurrency > maxConcurrency ||
+      timeout < 0.1 ||
+      timeout > 30
+    ) {
+      setErrorMessage("Check the test settings. Values must stay within the displayed limits.");
       return;
     }
 
+    let target;
     try {
-      new URL(url);
-    } catch (error) {
-      alert("Invalid URL! Please enter a valid URL (e.g., http://example.com)");
+      target = new URL(url);
+      if (!['http:', 'https:'].includes(target.protocol)) {
+        throw new Error('Unsupported protocol');
+      }
+    } catch {
+      setErrorMessage("Enter a valid HTTP or HTTPS target URL.");
       return;
     }
 
-   
-    const testResults = [];
-    let totalResponseTime = 0;
-    let successfulRequests = 0;
-    let failedRequests = 0;
+    setIsRunning(true);
+    try {
+      const response = await fetch("/api/load-test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          target: target.href,
+          numberOfRequests,
+          concurrency,
+          timeoutSeconds: timeout,
+        }),
+      });
 
-    // Loop untuk mengirim permintaan sesuai jumlah yang ditentukan
-    for (let i = 0; i < numberOfRequests; i++) {
-      const startTime = performance.now(); // Waktu mulai request
-      try {
-        // Atur mekanisme timeout menggunakan AbortController
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout * 1000);
-
-        // Kirim request ke server dengan endpoint proxy dan URL target
-        const response = await fetch(`/proxy?target=${encodeURIComponent(url)}`, {
-          signal: controller.signal, // Menghubungkan abort signal
-        });
-
-        clearTimeout(timeoutId); // Hentikan timeout jika request berhasil
-
-        // Simulasikan waktu respons antara 50ms hingga 250ms
-        const responseTime = Math.random() * 200 + 50;
-        totalResponseTime += responseTime;
-        successfulRequests++; // Tambahkan jumlah permintaan yang berhasil
-
-        // Simpan hasil request
-        testResults.push({
-          requestNumber: i + 1,
-          statusCode: response.status,
-          reasonPhrase: response.statusText,
-          responseTime,
-        });
-      } catch (error) {
-        failedRequests++; // Tambahkan jumlah request yang gagal
-        testResults.push({
-          requestNumber: i + 1,
-          statusCode: "Error",
-          reasonPhrase: error.name === "AbortError" ? "Timeout" : error.message,
-          responseTime: 0,
-        });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Load test request failed.");
       }
+
+      setResults(payload.results);
+      setStatistics(payload.statistics);
+    } catch (error) {
+      setErrorMessage(error.message || "Unable to reach the load test backend.");
+    } finally {
+      setIsRunning(false);
     }
-
-    // Hitung total requests dan rata-rata waktu respons
-    const totalRequests = successfulRequests + failedRequests;
-    const averageResponseTime =
-      successfulRequests > 0 ? totalResponseTime / successfulRequests : 0;
-
- 
-    setResults(testResults);
-    setStatistics({
-      totalRequests,
-      successfulRequests,
-      failedRequests,
-      totalResponseTime,
-      averageResponseTime,
-    });
-
-    setCpuUsage(Math.random() * 100);
-    setRamUsage(Math.random() * 1000);
-
-    
-    console.log("Statistics:");
-    console.log("Total Requests:", totalRequests);
-    console.log("Successful Requests:", successfulRequests);
-    console.log("Failed Requests:", failedRequests);
-    console.log("Total Response Time:", totalResponseTime.toFixed(2), "ms");
-    console.log("Average Response Time:", averageResponseTime.toFixed(2), "ms");
   };
 
 
@@ -118,32 +93,93 @@ function App() {
       totalResponseTime: 0,
       averageResponseTime: 0,
     });
-    setCpuUsage(0);
-    setRamUsage(0);
-    alert("Results cleared!");
+    setErrorMessage("");
   };
 
   return (
-    <div className="h-screen w-full flex justify-center">
-      <div>
-        <h1 className="text-3xl flex justify-center font-bold text-black rounded-md4xl mb-4 ">Load Testing</h1>
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="#top" aria-label="Load Lab home">
+          <span className="brand-mark"><Activity size={19} strokeWidth={2.4} /></span>
+          <span className="brand-name">load<span>lab</span></span>
+        </a>
+        <div className="topbar-tools">
+          <span className="environment-tag"><span className="environment-dot" /> Test runner</span>
+          <Help />
+          <Info />
+        </div>
+      </header>
+
+      <main className="workspace" id="top">
+        <section className="page-intro">
+          <div>
+            <p className="eyebrow">PERFORMANCE WORKSPACE <span> / </span> HTTP</p>
+            <h1>Load test</h1>
+            <p className="intro-copy">HTTP endpoint performance</p>
+          </div>
+          <div className={`run-state ${isRunning ? "is-running" : results.length ? "has-results" : "is-idle"}`} aria-live="polite">
+            <span className="run-state-dot" />
+            {isRunning ? "Run in progress" : results.length ? "Last run complete" : "Ready to run"}
+          </div>
+        </section>
+
+        <div className="dashboard-grid">
+          <aside className="control-panel" aria-labelledby="config-title">
+            <div className="panel-heading">
+              <div className="panel-index">01</div>
+              <div>
+                <p className="eyebrow">SETUP</p>
+                <h2 id="config-title">Test configuration</h2>
+              </div>
+            </div>
         <LoadTestForm
           url={url}
           setUrl={setUrl}
           numberOfRequests={numberOfRequests}
           setNumberOfRequests={setNumberOfRequests}
+          maxRequests={maxRequests}
+          concurrency={concurrency}
+          setConcurrency={setConcurrency}
+          maxConcurrency={maxConcurrency}
           timeout={timeout}
           setTimeoutValue={setTimeoutValue}
           handleStartTest={handleStartTest}
         />
-        <ResultsList results={results} statistics={statistics} />
-        <ResourceUsage cpuUsage={cpuUsage} ramUsage={ramUsage} />
-        <div className="flex gap-2">
-        <ClearResults clearResults={clearResults} />
-        <Help />
-        <Info />
+          </aside>
+
+          <section className="results-panel" aria-labelledby="results-title">
+            <div className="results-heading">
+              <div className="panel-heading">
+                <div className="panel-index panel-index-coral">02</div>
+                <div>
+                  <p className="eyebrow">OUTPUT</p>
+                  <h2 id="results-title">Run results</h2>
+                </div>
+              </div>
+              <ClearResults clearResults={clearResults} disabled={!results.length || isRunning} />
+            </div>
+            {errorMessage && (
+              <div className="error-banner" role="alert">
+                <CircleAlert size={17} />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+            {isRunning && (
+              <div className="progress-banner" role="status">
+                <span className="progress-track"><span /></span>
+                <span>Sending {numberOfRequests.toLocaleString()} requests, up to {concurrency} at once</span>
+              </div>
+            )}
+            <ResultsList results={results} statistics={statistics} isRunning={isRunning} />
+          </section>
         </div>
-      </div>
+
+        <footer className="workspace-footer">
+          <span>LOADLAB <span className="footer-divider">/</span> HTTP RUNNER</span>
+          <ResourceUsage />
+          <span className="footer-limit">MAX {maxRequests.toLocaleString()} REQUESTS <i /> {maxConcurrency} CONCURRENT</span>
+        </footer>
+      </main>
     </div>
   );
 }
