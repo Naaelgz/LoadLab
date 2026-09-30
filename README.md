@@ -1,26 +1,61 @@
-# LoadTesting-JS
+# LoadLab
 
-A browser interface and Node.js backend for running bounded HTTP load tests.
+LoadLab adalah aplikasi web untuk menjalankan tes beban HTTP sederhana terhadap endpoint yang kamu miliki atau berwenang untuk uji. Aplikasi terdiri dari dashboard React untuk mengatur tes dan server Node.js yang mengirim request ke target. Pengiriman dilakukan dari server, bukan dari browser, sehingga request tidak bergantung pada CORS di browser.
 
-## Requirements
+LoadLab ditujukan untuk pengujian terkontrol dan penggunaan lokal. Ini bukan pengganti platform performance testing berskala besar, dan bukan alat untuk menguji target tanpa izin.
 
-- Node.js 20 or newer
-- A Cloudflare Access application protecting the production hostname
+## Cara Kerja
 
-## Development
+1. Masukkan URL target berprotokol `http` atau `https`.
+2. Tentukan jumlah request, jumlah request yang berjalan bersamaan, dan timeout.
+3. Jalankan tes. Server mengirim request `GET` ke target dan menampilkan hasil setiap request.
 
-Start the Vite frontend and API server:
+Hasil menunjukkan status HTTP, alasan/status pesan, dan latency tiap request. Ringkasan menampilkan jumlah request, jumlah sukses/gagal, total latency, dan rata-rata latency.
+
+## Metrik
+
+- **Sukses:** respons HTTP dengan status `2xx`.
+- **Gagal:** status HTTP di luar `2xx`, timeout, atau kegagalan jaringan.
+- **Latency:** waktu dari server mulai mengirim request sampai seluruh respons target selesai diterima. Isi response dibuang dan tidak disimpan.
+- **Rata-rata latency:** rata-rata latency seluruh request, termasuk request yang gagal.
+
+LoadLab tidak mengukur CPU atau RAM mesin target. Request saat ini hanya menggunakan metode `GET`; custom header, request body, dan metode lain belum didukung.
+
+## Menjalankan Secara Lokal
+
+### Kebutuhan
+
+- Node.js 20 atau lebih baru
+
+Di PowerShell, dari folder proyek:
 
 ```powershell
 npm install
 npm run dev
 ```
 
-Vite forwards `/api` requests to the backend on port `3001`. Local development does not need a key; the backend binds to `127.0.0.1` and accepts test requests only from loopback clients.
+Buka alamat lokal yang ditampilkan Vite, biasanya `http://localhost:5173`. Jika port itu sedang dipakai, Vite otomatis memilih port berikutnya. Backend berjalan di port `3001` dan hanya menerima koneksi lokal. Tidak perlu API key untuk development.
 
-## Production
+## Batas dan Keamanan
 
-Build the frontend and run the Node server from the same project directory:
+- Satu tes dibatasi maksimal 1.000 request, 50 request bersamaan, dan timeout 30 detik per request.
+- API membatasi lima pengajuan tes per alamat IP setiap menit.
+- Target harus berupa URL HTTP(S) yang resolve ke alamat IP publik. Alamat loopback, jaringan privat, dan link-local ditolak.
+- Redirect diikuti maksimal lima kali; setiap tujuan redirect diperiksa kembali.
+- Gunakan hanya pada sistem yang kamu miliki atau memiliki izin untuk diuji. Mulai dari jumlah request dan konkurensi kecil.
+- Mode lokal terikat ke `127.0.0.1`; jangan mengekspos server development langsung ke internet.
+
+## Penggunaan Produksi
+
+Mode produksi bukan untuk dibuka tanpa autentikasi. Server mewajibkan Cloudflare Access dan memvalidasi JWT pada setiap pengajuan tes. Untuk menyiapkannya, lindungi hostname dengan kebijakan Cloudflare Access dan isi variabel berikut melalui environment/secret manager:
+
+- `NODE_ENV=production`
+- `CF_ACCESS_ISSUER`: URL issuer HTTPS dari tim Cloudflare Access.
+- `CF_ACCESS_AUD`: audience tag aplikasi Cloudflare Access.
+- `PORT`: port server (opsional, default `3000`).
+- `TRUST_PROXY_HOPS`: jumlah proxy tepercaya di depan server (opsional, default `0`).
+
+Build frontend dan jalankan server:
 
 ```powershell
 npm ci
@@ -32,20 +67,9 @@ $env:PORT = "3000"
 npm start
 ```
 
-Create a Cloudflare Access self-hosted application for the hostname and add an allow policy for authorized users. The Node API validates the `Cf-Access-Jwt-Assertion` header signature, issuer, and audience on every load-test request. Set `CF_ACCESS_ISSUER` to the exact HTTPS team issuer URL and `CF_ACCESS_AUD` to the application's audience tag. Production startup fails closed if either value is missing. The server serves the `dist` frontend and API from the same origin; keep the origin inaccessible except through Cloudflare Access. `PORT` defaults to `3000`; `/api/health` remains available for health checks.
+Server menyajikan folder `dist` dan API dari origin yang sama. Pertahankan origin di belakang Cloudflare Access/HTTPS. Health check tersedia di `/api/health`. Untuk beberapa instance, rate limit perlu dipindahkan ke storage bersama agar konsisten di semua instance.
 
-When running behind a reverse proxy, set `TRUST_PROXY_HOPS` to the exact number of trusted proxy hops so rate limiting can use the originating client IP. It defaults to `0` (trust no forwarded IP headers).
-
-## Limits and security
-
-- Cloudflare Access protects the public hostname, and the origin independently verifies Access JWTs before accepting load-test submissions.
-- The API allows at most five test submissions per client IP each minute.
-- Each test is limited to 1,000 requests, 50 concurrent requests, and a 30-second per-request timeout.
-- Targets must use HTTP or HTTPS and resolve only to public IP addresses. DNS is checked and pinned per outbound request; private, loopback, and link-local targets are rejected, including redirects.
-- Redirects are followed for up to five hops, validating each destination. Response bodies are discarded.
-- This backend is intended for authorized testing. Run a single instance unless rate limiting is configured with a shared store for your deployment topology.
-
-## Checks
+## Pemeriksaan
 
 ```sh
 npm test
